@@ -102,24 +102,31 @@ class StateVectorKokkos final
     using MemoryStorageT = Pennylane::Util::MemoryStorageLocation::Undefined;
 
     StateVectorKokkos() = delete;
+
+    /**
+     * @brief Create a new state vector of the given number of qubits,
+     * initialized to the |0...0> basis state, using Kokkos's own default
+     * execution-space instance (lazily initializing Kokkos via
+     * kokkos_args if this is the first Kokkos-related construction in the
+     * process).
+     *
+     * @param num_qubits Number of qubits.
+     * @param kokkos_args Arguments for Kokkos initialization. Ignored if
+     * Kokkos is already initialized.
+     */
     StateVectorKokkos(std::size_t num_qubits,
                       const Kokkos::InitializationSettings &kokkos_args = {})
-        : BaseType{num_qubits}, exec_() {
-        // exec_ default-constructs to KokkosExecSpace's own default instance
-        // here -- behavior-identical to the previous implicit-default
-        // policy/view construction throughout this class (a
+        : BaseType{num_qubits}, kokkos_init_guard_(kokkos_args), exec_() {
+        // kokkos_init_guard_ (declared/constructed before exec_ below) has
+        // already ensured Kokkos::initialize() has run by this point, so
+        // exec_ default-constructing to KokkosExecSpace's own default
+        // instance here is safe -- behavior-identical to the previous
+        // implicit-default policy/view construction throughout this class (a
         // default-constructed instance IS what e.g. RangePolicy<Space>(0, N)
         // uses internally when no instance is given explicitly).  Real
         // per-device/per-stream binding only happens via the exec_space
         // constructor overload below.
         num_qubits_ = num_qubits;
-
-        {
-            const std::lock_guard<std::mutex> lock(init_mutex_);
-            if (!Kokkos::is_initialized()) {
-                Kokkos::initialize(kokkos_args);
-            }
-        }
 
 #ifdef _WIN32
         PL_ABORT_IF_NOT(num_qubits,
@@ -156,18 +163,13 @@ class StateVectorKokkos final
      * to.
      */
     StateVectorKokkos(std::size_t num_qubits, const KokkosExecSpace &exec_space)
-        : BaseType{num_qubits}, exec_(exec_space) {
+        : BaseType{num_qubits}, kokkos_init_guard_(), exec_(exec_space) {
+        // kokkos_init_guard_ uses no device_id preference here on purpose:
+        // with per-instance binding, Kokkos::initialize()'s own default
+        // device is irrelevant to where THIS state vector's data/kernels
+        // run -- exec_space (constructed by the caller against whichever
+        // device/stream it wants) is what actually matters.
         num_qubits_ = num_qubits;
-
-        {
-            const std::lock_guard<std::mutex> lock(init_mutex_);
-            if (!Kokkos::is_initialized()) {
-                // No device_id preference here on purpose: with per-instance
-                // binding, Kokkos::initialize()'s own default device is
-                // irrelevant to where THIS state vector's data/kernels run.
-                Kokkos::initialize();
-            }
-        }
 
 #ifdef _WIN32
         PL_ABORT_IF_NOT(num_qubits,
@@ -396,7 +398,7 @@ class StateVectorKokkos final
     ~StateVectorKokkos() {
         data_.reset();
         {
-            const std::lock_guard<std::mutex> lock(init_mutex_);
+            const std::lock_guard<std::mutex> lock(KokkosInitGuard::mutex());
             if (!is_exit_reg_) {
                 is_exit_reg_ = true;
                 std::atexit([]() {
@@ -1026,7 +1028,55 @@ class StateVectorKokkos final
 
   private:
     std::size_t num_qubits_;
-    std::mutex init_mutex_;
+
+    /**
+     * @brief Ensures Kokkos::initialize() has run, exactly once per
+     * process, before any KokkosExecSpace instance is constructed.
+     *
+     * Kokkos::initialize() is a process-wide singleton operation, so the
+     * mutex guarding it (see mutex() below) is deliberately *static*
+     * (shared by every instance) rather than a per-instance member: a
+     * per-instance mutex cannot serialize concurrent construction of
+     * multiple StateVectorKokkos instances from different threads, which is
+     * exactly the scenario the exec_space constructor overload above exists
+     * to support.
+     */
+    struct KokkosInitGuard {
+        /**
+         * @brief Run Kokkos::initialize(kokkos_args) if Kokkos has not
+         * already been initialized in this process.
+         *
+         * @param kokkos_args Arguments for Kokkos initialization. Ignored
+         * if Kokkos is already initialized (Kokkos::initialize() only ever
+         * takes effect the first time it is called in a process).
+         */
+        explicit KokkosInitGuard(
+            const Kokkos::InitializationSettings &kokkos_args = {}) {
+            const std::lock_guard<std::mutex> lock(mutex());
+            if (!Kokkos::is_initialized()) {
+                Kokkos::initialize(kokkos_args);
+            }
+        }
+
+        /**
+         * @brief Process-wide mutex serializing the
+         * Kokkos::is_initialized()/Kokkos::initialize() check-then-act
+         * above, and the analogous is_exit_reg_ check in the destructor,
+         * since both guard process-wide singleton state.
+         *
+         * @return Reference to the shared mutex instance.
+         */
+        static std::mutex &mutex() {
+            static std::mutex m;
+            return m;
+        }
+    };
+    // kokkos_init_guard_ MUST be declared (and therefore constructed)
+    // before exec_ below: member initialization always runs in declaration
+    // order regardless of the order written in a constructor's initializer
+    // list, and default-constructing exec_ (e.g. Kokkos::HIP{}) requires
+    // Kokkos::initialize() to have already run.
+    KokkosInitGuard kokkos_init_guard_;
     // exec_ MUST be declared (and therefore destroyed) after data_ is
     // destroyed: C++ destroys members in REVERSE declaration order, and
     // data_'s View must be freed while exec_ (and the stream/device it may

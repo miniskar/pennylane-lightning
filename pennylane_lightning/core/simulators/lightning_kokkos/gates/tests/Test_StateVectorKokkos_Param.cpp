@@ -60,9 +60,9 @@ TEMPLATE_TEST_CASE("BasicGateFunctors::applyNamedOperation", "[Error]", float,
     using KokkosVector = StateVectorT::KokkosVector;
     using ExecutionSpace = StateVectorT::KokkosExecSpace;
     {
-        [[maybe_unused]] StateVectorT sv{1};
+        StateVectorT sv{1};
         KokkosVector arr_("arr_", 2);
-        PL_REQUIRE_THROWS_MATCHES(applyNamedOperation<ExecutionSpace>(
+        PL_REQUIRE_THROWS_MATCHES(applyNamedOperation<ExecutionSpace>(sv.exec(),
                                       GateOperation::END, arr_, 1, {0}),
                                   LightningException,
                                   "Gate operation does not exist.");
@@ -2691,7 +2691,7 @@ TEMPLATE_TEST_CASE("Test NQubit gate versus expectation value",
                                      z, z, z, z,  j, z,  z,  z, z,  j, z, z, z,
                                      z, z, z, z,  z, -j, z,  z, z,  z, z, z};
         kokkos_sv.applyMatrix(matrix, {0, 1, 2});
-        auto res = getRealOfComplexInnerProduct(copy_sv.getView(),
+        auto res = getRealOfComplexInnerProduct(kokkos_sv.exec(), copy_sv.getView(), 
                                                 kokkos_sv.getView());
 
         CHECK(expected == Approx(res));
@@ -2717,7 +2717,7 @@ TEMPLATE_TEST_CASE("Test NQubit gate versus expectation value",
             z, z, z,  z, z, z, z, -j, z,  z, z, z, z, z,  z, z, z, z, z, z,
             z, z, -j, z, z, z, z, z,  z,  z, z, z, z, z,  z, z};
         kokkos_sv.applyMatrix(matrix, {0, 1, 2, 3});
-        auto res = getRealOfComplexInnerProduct(copy_sv.getView(),
+        auto res = getRealOfComplexInnerProduct(kokkos_sv.exec(), copy_sv.getView(), 
                                                 kokkos_sv.getView());
 
         CHECK(expected == Approx(res));
@@ -2784,7 +2784,7 @@ TEMPLATE_TEST_CASE("Test NQubit gate versus expectation value",
             z,  z, z,  z, z,  z,  z, z,  u,  z,  z,  z, z, z,  z, z,  z, z, z,
             z,  z, z,  z, z,  z,  z, z,  z,  z,  z,  z, z, z,  z, z,  z};
         kokkos_sv.applyMatrix(matrix, {0, 1, 2, 3, 4});
-        auto res = getRealOfComplexInnerProduct(copy_sv.getView(),
+        auto res = getRealOfComplexInnerProduct(kokkos_sv.exec(), copy_sv.getView(), 
                                                 kokkos_sv.getView());
 
         CHECK(expected == Approx(res));
@@ -2810,7 +2810,7 @@ TEMPLATE_TEST_CASE("Test NQubit gate versus expectation value",
             z, z, z,  z, z, z, z, -j, z,  z, z, z, z, z,  z, z, z, z, z, z,
             z, z, -j, z, z, z, z, z,  z,  z, z, z, z, z,  z, z};
         kokkos_sv.applyMatrix(matrix, {0, 1, 2, 3});
-        auto res = getRealOfComplexInnerProduct(copy_sv.getView(),
+        auto res = getRealOfComplexInnerProduct(kokkos_sv.exec(), copy_sv.getView(), 
                                                 kokkos_sv.getView());
 
         CHECK(expected == Approx(res));

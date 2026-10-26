@@ -65,7 +65,7 @@ TEMPLATE_TEST_CASE("Linear Algebra::SparseMV", "[Linear Algebra]", float,
 
     SECTION("Testing sparse matrix vector product:") {
         std::vector<ComplexT> result(data_size);
-        Util::SparseMV_Kokkos<TestType>(
+        Util::SparseMV_Kokkos<TestType>(kokkos_vx.exec(), 
             kokkos_vx.getView(), kokkos_vy.getView(), indptr.data(),
             indptr.size(), indices.data(), values.data(), values.size());
         kokkos_vy.DeviceToHost(result.data(), result.size());
@@ -106,7 +106,7 @@ TEMPLATE_TEST_CASE("Linear Algebra::axpy_Kokkos", "[Linear Algebra]", float,
     kokkos_v1.HostToDevice(v1.data(), v1.size());
 
     SECTION("Testing imag of complex inner product:") {
-        Util::axpy_Kokkos<TestType>(alpha, kokkos_v0.getView(),
+        Util::axpy_Kokkos<TestType>(kokkos_v0.exec(), alpha, kokkos_v0.getView(),
                                     kokkos_v1.getView(), v0.size());
         std::vector<ComplexT> result(data_size);
         kokkos_v1.DeviceToHost(result.data(), result.size());
